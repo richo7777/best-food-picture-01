@@ -1,49 +1,70 @@
-# Best food picture entry for make.fun (food-picture-01).
-# food picture v1 — cheeseburger, rebuilt fresh after the competition opened.
-# Python 3.13, standard library only. Copies the bundled picture to the
-# grader's output directory. Deterministic: the same bytes every run.
-# Run locally: mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
-# MIT license
-# Entry title: "Cheeseburger Melt" — glossy bun, melted cheddar, warm light.
+#!/usr/bin/env python3
+"""Cheeseburger Melt: the make.fun food-picture-01 entry.
+
+The bundled picture is a juicy cheeseburger, shot close up with a glossy
+toasted sesame bun and cheddar melting down the patty. This program copies
+that picture to the output directory the grader provides and verifies it
+fits the bounty limits before it leaves: no more than 1 MiB, no side
+longer than 1024 pixels, PNG or JPEG. Only the standard library is used,
+and every run writes the same bytes.
+"""
 
 import os
 import shutil
+import struct
 
-OUTPUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
-SOURCE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
+MAX_BYTES = 1_048_576
+MAX_SIDE = 1024
+PICTURE_NAME = "entry.png"
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-dest = os.path.join(OUTPUT_DIR, "entry.png")
-shutil.copyfile(SOURCE, dest)
-# Guardrail: the entry must stay a valid picture within the bounty limits
-# (at most 1 MiB and 1024 by 1024). The file may be PNG or JPEG — told
-# apart by its first bytes, the name stays entry.png either way. Fail
-# loudly instead of shipping a broken or oversized file.
-size = os.path.getsize(dest)
-assert size <= 1048576, f"entry.png too large: {size} bytes"
-with open(dest, "rb") as f:
-    header = f.read(2)
-    if header == b"\xff\xd8":  # JPEG: scan markers for the SOF frame size
-        with open(dest, "rb") as g:
-            data = g.read()
-        width = height = None
-        i = 2
-        while i < len(data) - 1:
-            if data[i] != 0xFF:
-                i += 1
-                continue
-            marker = data[i + 1]
-            if marker in (0xC0, 0xC1, 0xC2):  # SOF0/1/2
-                height = int.from_bytes(data[i + 5:i + 7], "big")
-                width = int.from_bytes(data[i + 7:i + 9], "big")
-                break
-            seg_len = int.from_bytes(data[i + 2:i + 4], "big")
-            i += 2 + seg_len
-        assert width and height, "could not read JPEG dimensions"
+
+def bundled_picture() -> str:
+    """Absolute path of the picture shipped next to this program."""
+    folder = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(folder, PICTURE_NAME)
+
+
+def jpeg_dimensions(blob: bytes) -> tuple[int, int]:
+    """Width and height of a JPEG, found by walking its markers."""
+    cursor = 2
+    while cursor + 1 < len(blob):
+        if blob[cursor] != 0xFF:
+            cursor += 1
+            continue
+        marker = blob[cursor + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            height, width = struct.unpack_from(">HH", blob, cursor + 5)
+            return width, height
+        (segment,) = struct.unpack_from(">H", blob, cursor + 2)
+        cursor += 2 + segment
+    raise ValueError("JPEG has no start-of-frame marker")
+
+
+def png_dimensions(blob: bytes) -> tuple[int, int]:
+    """Width and height of a PNG, read from its IHDR chunk."""
+    if blob[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("picture is neither JPEG nor PNG")
+    width, height = struct.unpack_from(">II", blob, 16)
+    return width, height
+
+
+def run() -> None:
+    """Copy the picture out and check it against the bounty limits."""
+    destination_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
+    os.makedirs(destination_dir, exist_ok=True)
+    destination = os.path.join(destination_dir, PICTURE_NAME)
+    shutil.copyfile(bundled_picture(), destination)
+    with open(destination, "rb") as picture_file:
+        blob = picture_file.read()
+    if len(blob) > MAX_BYTES:
+        raise SystemExit(f"picture is {len(blob)} bytes, over the 1 MiB cap")
+    if blob[:2] == b"\xff\xd8":
+        width, height = jpeg_dimensions(blob)
     else:
-        with open(dest, "rb") as g:
-            header = g.read(33)
-        assert header[:8] == b"\x89PNG\r\n\x1a\n", "entry.png is not a PNG or JPEG"
-        width = int.from_bytes(header[16:20], "big")
-        height = int.from_bytes(header[20:24], "big")
-assert width <= 1024 and height <= 1024, f"entry.png too big: {width}x{height}"
+        width, height = png_dimensions(blob)
+    if width > MAX_SIDE or height > MAX_SIDE:
+        raise SystemExit(f"picture is {width}x{height}, over the 1024 cap")
+
+
+if __name__ == "__main__":
+    run()
