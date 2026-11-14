@@ -16,6 +16,7 @@ import struct
 MAX_BYTES = 1_048_576
 MAX_SIDE = 1024
 PICTURE_NAME = "entry.png"
+# Entry title: "Cheeseburger Melt".
 
 
 def bundled_picture() -> str:
@@ -48,6 +49,7 @@ def png_dimensions(blob: bytes) -> tuple[int, int]:
     return width, height
 
 
+# Deterministic by construction: copy plus checks only, no randomness.
 def run() -> None:
     """Copy the picture out and check it against the bounty limits."""
     destination_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
